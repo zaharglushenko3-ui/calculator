@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#12151f">
+<title>Камінці · калькулятор</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;overscroll-behavior:none}
+  body{
+    font-family: ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;
+    background: radial-gradient(120% 100% at 15% 0%, #2a2140 0%, #141726 45%, #0a0d15 100%);
+    color:#eef; overflow:hidden; display:flex; flex-direction:column;
+    touch-action:none; user-select:none; -webkit-user-select:none;
+  }
+  body::before,body::after{
+    content:"";position:fixed;border-radius:50%;filter:blur(70px);opacity:.6;
+    pointer-events:none;z-index:0;
+  }
+  body::before{width:70vmin;height:70vmin;left:-20vmin;top:-15vmin;background:#3f6dff}
+  body::after{width:60vmin;height:60vmin;right:-18vmin;bottom:-15vmin;background:#ff5bb0}
+
+  #display{
+    position:relative;z-index:2;
+    margin:calc(10px + env(safe-area-inset-top)) 14px 2px;
+    padding:12px 18px 14px;border-radius:22px;
+    background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.03));
+    border:1px solid rgba(255,255,255,.13);
+    box-shadow:0 10px 30px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.18);
+    backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);
+    text-align:right;min-height:88px;
+    display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;
+  }
+  #expr{font-size:15px;opacity:.55;min-height:19px;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis;letter-spacing:.4px}
+  #result{font-size:clamp(26px,9vw,42px);font-weight:700;letter-spacing:.5px;
+          text-shadow:0 0 20px rgba(130,180,255,.55);white-space:nowrap;
+          overflow:hidden;text-overflow:ellipsis}
+
+  #board{position:relative;flex:1 1 auto;min-height:0;z-index:2;margin:4px 6px 24px}
+
+  .stone{
+    position:absolute;top:0;left:0;
+    display:flex;align-items:center;justify-content:center;
+    color:rgba(255,255,255,.95);font-weight:700;
+    text-shadow:0 2px 4px rgba(0,0,0,.55),0 -1px 0 rgba(255,255,255,.35);
+    will-change:transform;backface-visibility:hidden;cursor:pointer;
+    transition:filter .12s;
+    background:
+      radial-gradient(120% 120% at 28% 16%, rgba(255,255,255,.9), rgba(255,255,255,.3) 30%, rgba(255,255,255,0) 55%),
+      radial-gradient(90% 90% at 78% 92%, hsla(var(--h),100%,72%,.55), transparent 72%),
+      linear-gradient(155deg, hsla(var(--h),95%,66%,.55), hsla(var(--h),85%,40%,.7));
+    box-shadow:
+      inset 0 2px 5px rgba(255,255,255,.55),
+      inset 0 -8px 14px rgba(0,0,0,.3),
+      inset 0 0 0 1px rgba(255,255,255,.14),
+      0 10px 20px rgba(0,0,0,.38);
+  }
+  .stone.hit{filter:brightness(1.7) saturate(1.3)}
+
+  #hint{
+    position:fixed;left:0;right:0;bottom:calc(4px + env(safe-area-inset-bottom));
+    text-align:center;font-size:11px;opacity:.4;z-index:3;
+    pointer-events:none;transition:opacity .8s;
+  }
+  #hint.hide{opacity:0}
+</style>
+</head>
+<body>
+
+<div id="display">
+  <div id="expr"></div>
+  <div id="result">0</div>
+</div>
+
+<div id="board"></div>
+
+<div id="hint">Поверни телефон — камінці покотяться · камінець можна тягнути</div>
+
+<script>
+(function(){
+  'use strict';
+
+  const board  = document.getElementById('board');
+  const exprEl = document.getElementById('expr');
+  const resEl  = document.getElementById('result');
+  const hintEl = document.getElementById('hint');
+
+  const COLS = 4;
+  const clamp = (v,a,b)=> v<a?a:v>b?b:v;
+
+  /* ---------- клавіші ---------- */
+  const KEYS = [
+    {label:'C'},{label:'⌫'},{label:'%'},{label:'÷'},
+    {label:'7'},{label:'8'},{label:'9'},{label:'×'},
+    {label:'4'},{label:'5'},{label:'6'},{label:'−'},
+    {label:'1'},{label:'2'},{label:'3'},{label:'+'},
+    {label:'0'},{label:'.'},{label:'=',span:2}
+  ];
+
+  function hueFor(l){
+    if (l === 'C' || l === '⌫') return 348;
+    if (l === '%') return 282;
+    if (l === '=') return 148;
+    if ('÷×−+'.includes(l)) return 32;
+    const d = parseInt(l,10);
+    if (!isNaN(d)) return [196,178,212,168,188,205,160,220,172,198][d % 10];
+    return 195;
+  }
+  const randRadius = () => {
+    const r = () => (32 + Math.random()*36).toFixed(0) + '%';
+    return `${r()} ${r()} ${r()} ${r()} / ${r()} ${r()} ${r()} ${r()}`;
+  };
+
+  /* ---------- створення камінців ---------- */
+  const stones = [];
+  let W = 0, H = 0;
+
+  KEYS.forEach((k,i)=>{
+    const el = document.createElement('div');
+    el.className = 'stone';
+    el.textContent = k.label;
+    el.style.setProperty('--h', hueFor(k.label));
+    el.style.borderRadius = randRadius();
+    board.appendChild(el);
+
+    const st = {
+      el, label:k.label, span:k.span||1,
+      col:0,row:0, x:0,y:0,vx:0,vy:0,rot:0,
+      w:0,h:0,r:0,hx:0,hy:0, placed:false, drag:false
+    };
+    el._stone = st;
+    stones.push(st);
+  });
+
+  /* розкладка по сітці з урахуванням span */
+  let col = 0, row = 0, maxRow = 0;
+  stones.forEach(st=>{
+    if (col + st.span > COLS){ col = 0; row++; }
+    st.col = col; st.row = row;
+    col += st.span;
+    if (col >= COLS){ col = 0; row++; }
+    maxRow = Math.max(maxRow, st.row);
+  });
+  const ROWS = maxRow + 1;
+
+  /* ---------- геометрія ---------- */
+  function layout(){
+    const bw = board.clientWidth, bh = board.clientHeight;
+    if (!bw || !bh) return;
+    W = bw; H = bh;
+
+    const gap = clamp(bw * 0.022, 5, 12);
+    const s   = Math.min((bw - gap*(COLS+1))/COLS, (bh - gap*(ROWS+1))/ROWS);
+    const gridW = s*COLS + gap*(COLS+1);
+    const gridH = s*ROWS + gap*(ROWS+1);
+    const x0 = (bw - gridW)/2 + gap;
+    const y0 = (bh - gridH)/2 + gap;
+
+    stones.forEach(st=>{
+      st.w = s*st.span + gap*(st.span-1);
+      st.h = s;
+      st.r = Math.min(st.w, st.h) * 0.46;
+      st.hx = x0 + st.col*(s+gap);
+      st.hy = y0 + st.row*(s+gap);
+      st.el.style.width  = st.w + 'px';
+      st.el.style.height = st.h + 'px';
+      st.el.style.fontSize = Math.round(s*0.42) + 'px';
+      if (!st.placed){ st.x = st.hx; st.y = st.hy; st.placed = true; }
+    });
+  }
+  new ResizeObserver(layout).observe(board);
+  layout();
+
+  /* ---------- фізика ---------- */
+  let tiltX = 0, tiltY = 0, tTX = 0, tTY = 0;
+
+  function physics(dt){
+    const k = Math.min(1, dt*12);
+    tiltX += (tTX - tiltX)*k;
+    tiltY += (tTY - tiltY)*k;
+
+    const K = 30, D = 6.5, G = 1200, MAXV = 2600;
+
+    for (const s of stones){
+      if (s.drag) continue;
+      const ax = -K*(s.x - s.hx) - D*s.vx + tiltX*G;
+      const ay = -K*(s.y - s.hy) - D*s.vy + tiltY*G;
+      s.vx += ax*dt; s.vy += ay*dt;
+
+      const sp = Math.hypot(s.vx, s.vy);
+      if (sp > MAXV){ s.vx *= MAXV/sp; s.vy *= MAXV/sp; }
+
+      s.x += s.vx*dt; s.y += s.vy*dt;
+    }
+
+    /* зіткнення камінець-камінець */
+    for (let i=0;i<stones.length;i++){
+      for (let j=i+1;j<stones.length;j++){
+        const a = stones[i], b = stones[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const rr = a.r + b.r;
+        let d2 = dx*dx + dy*dy;
+        if (d2 >= rr*rr || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx/d, ny = dy/d;
+        const push = (rr - d) * 0.3;
+        a.x -= nx*push; a.y -= ny*push;
+        b.x += nx*push; b.y += ny*push;
+        const vn = (b.vx-a.vx)*nx + (b.vy-a.vy)*ny;
+        if (vn < 0){
+          const imp = -(1.35)*vn*0.5;
+          a.vx -= nx*imp; a.vy -= ny*imp;
+          b.vx += nx*imp; b.vy += ny*imp;
+        }
+      }
+    }
+
+    /* стіни */
+    for (const s of stones){
+      if (s.drag) continue;
+      if (s.x < 0)      { s.x = 0;      if (s.vx < 0) s.vx *= -0.4; }
+      if (s.x+s.w > W)  { s.x = W-s.w;  if (s.vx > 0) s.vx *= -0.4; }
+      if (s.y < 0)      { s.y = 0;      if (s.vy < 0) s.vy *= -0.4; }
+      if (s.y+s.h > H)  { s.y = H-s.h;  if (s.vy > 0) s.vy *= -0.4; }
+    }
+
+    /* рендер */
+    for (const s of stones){
+      s.rot = s.rot*0.94 + s.vx*dt*0.22;
+      s.rot = clamp(s.rot, -24, 24);
+      s.el.style.transform =
+        `translate3d(${s.x.toFixed(2)}px,${s.y.toFixed(2)}px,0) rotate(${s.rot.toFixed(2)}deg)`;
+    }
+  }
+
+  let lastT = performance.now();
+  function loop(t){
+    const dt = clamp((t - lastT)/1000, 0.001, 0.033);
+    lastT = t;
+    if (W > 0) physics(dt);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  /* ---------- перетягування ---------- */
+  let drag = null;
+
+  board.addEventListener('pointerdown', e=>{
+    const el = e.target.closest('.stone');
+    if (!el || !el._stone) return;
+    enableSensors();
+    hideHint();
+    const st = el._stone;
+    const rect = board.getBoundingClientRect();
+    drag = {
+      st,
+      offX: e.clientX - rect.left - st.x,
+      offY: e.clientY - rect.top  - st.y,
+      sx: e.clientX, sy: e.clientY,
+      lx: e.clientX, ly: e.clientY, lt: performance.now(),
+      moved: false
+    };
+    st.drag = true; st.vx = 0; st.vy = 0;
+    try { board.setPointerCapture(e.pointerId); } catch(_){}
+    e.preventDefault();
+  });
+
+  board.addEventListener('pointermove', e=>{
+    if (!drag) return;
+    const st = drag.st;
+    const rect = board.getBoundingClientRect();
+    st.x = clamp(e.clientX - rect.left - drag.offX, 0, W - st.w);
+    st.y = clamp(e.clientY - rect.top  - drag.offY, 0, H - st.h);
+
+    if (Math.hypot(e.clientX-drag.sx, e.clientY-drag.sy) > 8) drag.moved = true;
+
+    const now = performance.now();
+    const dt = Math.max(0.008, (now - drag.lt)/1000);
+    st.vx = (e.clientX - drag.lx)/dt;
+    st.vy = (e.clientY - drag.ly)/dt;
+    drag.lx = e.clientX; drag.ly = e.clientY; drag.lt = now;
+  });
+
+  function endDrag(){
+    if (!drag) return;
+    const st = drag.st;
+    st.drag = false;
+    st.vx *= 0.5; st.vy *= 0.5;
+    if (!drag.moved) press(st.label, st);
+    drag = null;
+  }
+  board.addEventListener('pointerup', endDrag);
+  board.addEventListener('pointercancel', endDrag);
+
+  /* ---------- калькулятор ---------- */
+  const S = { cur:'0', acc:null, op:null, fresh:true, err:false };
+
+  function fmt(n){
+    if (!isFinite(n)) return 'Помилка';
+    const r = Math.round(n*1e10)/1e10;
+    if (Math.abs(r) >= 1e12) return r.toExponential(5);
+    return String(r);
+  }
+  function compute(a,b,op){
+    switch(op){
+      case '+': return a+b;
+      case '−': return a-b;
+      case '×': return a*b;
+      case '÷': return b === 0 ? NaN : a/b;
+    }
+    return b;
+  }
+
+  function digit(d){
+    if (S.fresh){ S.cur = d; S.fresh = false; }
+    else if (S.cur === '0') S.cur = d;
+    else if (S.cur.replace('-','').replace('.','').length < 12) S.cur += d;
+  }
+  function dot(){
+    if (S.fresh){ S.cur = '0.'; S.fresh = false; }
+    else if (!S.cur.includes('.')) S.cur += '.';
+  }
+  function clearAll(){ S.cur='0'; S.acc=null; S.op=null; S.fresh=true; S.err=false; }
+  function back(){
+    if (S.fresh) return;
+    S.cur = S.cur.length > 1 ? S.cur.slice(0,-1) : '0';
+    if (S.cur === '-') S.cur = '0';
+  }
+  function percent(){
+    const v = parseFloat(S.cur)/100;
+    if (!isFinite(v)) return;
+    S.cur = String(v); S.fresh = true;
+  }
+  function opKey(o){
+    const v = parseFloat(S.cur);
+    if (S.acc === null) S.acc = v;
+    else if (S.op && !S.fresh) S.acc = compute(S.acc, v, S.op);
+    if (!isFinite(S.acc)){ S.err = true; S.cur = 'Помилка'; S.acc = null; S.op = null; return; }
+    S.op = o; S.fresh = true; S.cur = fmt(S.acc);
+  }
+  function equals(){
+    if (S.op === null || S.acc === null){ S.fresh = true; return; }
+    const r = compute(S.acc, parseFloat(S.cur), S.op);
+    if (!isFinite(r)){ S.err = true; S.cur = 'Помилка'; S.acc = null; S.op = null; return; }
+    S.cur = fmt(r); S.acc = null; S.op = null; S.fresh = true;
+  }
+
+  function updateDisplay(){
+    if (S.err){ exprEl.textContent = ''; resEl.textContent = S.cur; return; }
+    exprEl.textContent = (S.acc !== null && S.op) ? `${fmt(S.acc)} ${S.op}` : '';
+    resEl.textContent = S.cur;
+  }
+
+  function press(label, st){
+    if (S.err && label !== 'C') return;
+    if (label >= '0' && label <= '9') digit(label);
+    else if (label === '.') dot();
+    else if (label === 'C') clearAll();
+    else if (label === '⌫') back();
+    else if (label === '%') percent();
+    else if (label === '=') equals();
+    else opKey(label);
+    updateDisplay();
+
+    if (st){
+      st.el.classList.add('hit');
+      setTimeout(()=>st.el.classList.remove('hit'), 150);
+    }
+  }
+  updateDisplay();
+
+  /* ---------- нахил / сенсори ---------- */
+  let hasSensor = false, asked = false;
+
+  function onMotion(e){
+    const a = e.accelerationIncludingGravity;
+    if (!a || a.x === null) return;
+    hasSensor = true;
+    tTX = clamp(a.x / 9.81, -1, 1);
+    tTY = clamp(-a.y / 9.81, -1, 1);
+  }
+  function onOrient(e){
+    if (hasSensor || e.beta === null) return;
+    hasSensor = true;
+    const b = e.beta * Math.PI/180;
+    const g = (e.gamma || 0) * Math.PI/180;
+    tTY = clamp(Math.sin(b), -1, 1);
+    tTX = clamp(Math.sin(g), -1, 1);
+  }
+
+  function enableSensors(){
+    if (asked) return;
+    asked = true;
+    const needPerm = typeof DeviceMotionEvent !== 'undefined' &&
+                     typeof DeviceMotionEvent.requestPermission === 'function';
+    if (needPerm){
+      DeviceMotionEvent.requestPermission().then(r=>{
+        if (r === 'granted'){
+          addEventListener('devicemotion', onMotion);
+          addEventListener('deviceorientation', onOrient);
+        }
+      }).catch(()=>{});
+    } else {
+      addEventListener('devicemotion', onMotion);
+      addEventListener('deviceorientation', onOrient);
+    }
+  }
+  enableSensors(); // на Android/десктопі працює одразу, iOS спитає дозвіл при першому дотику
+
+  /* мишка як замінник нахилу на десктопі */
+  addEventListener('pointermove', e=>{
+    if (hasSensor || e.pointerType !== 'mouse') return;
+    tTX = clamp((e.clientX - innerWidth/2)  / (innerWidth*0.45), -1, 1);
+    tTY = clamp((e.clientY - innerHeight/2) / (innerHeight*0.45), -1, 1);
+  });
+
+  function hideHint(){ hintEl.classList.add('hide'); }
+  addEventListener('pointerdown', hideHint, {once:true});
+  setTimeout(hideHint, 9000);
+})();
+</script>
+</body>
+</html>
