@@ -1,6 +1,6 @@
 {
-  "name": "Камінці — калькулятор",
-  "short_name": "Камінці",
+  "name": "Калькулятор",
+  "short_name": "Калькулятор",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
