@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#12151f">
+
 <title>Камінці · калькулятор</title>
-<style>
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+<link rel="manifest" href="manifest.webmanifest">
+<style> *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{height:100%;margin:0;overscroll-behavior:none}
   body{
     font-family: ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -419,6 +420,11 @@
   addEventListener('pointerdown', hideHint, {once:true});
   setTimeout(hideHint, 9000);
 })();
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js');
+  }
 </script>
 </body>
 </html>
